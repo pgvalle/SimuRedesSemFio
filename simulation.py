@@ -49,11 +49,10 @@ def main():
         for i in range(RUNS):
             ns.RngSeedManager.SetRun(i)
             print(f"run {i+1}/{RUNS}")
+
             throughput = Simulate(ber)
             print(throughput)
             print(throughput, file=f)
-
-        print(file=f)
 
 
 def Simulate(ber):
