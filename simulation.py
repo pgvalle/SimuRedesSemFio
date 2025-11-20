@@ -1,49 +1,59 @@
 from ns import ns
 import sys
 import ctypes
-import matplotlib.pyplot as plt
-import numpy as np
-import scipy.stats as sst
+import csv
 
-PORT = 5000
-STARTTIME = 0.0
-ENDTIME = 60.0
 SEED = 54294301
 RUNS = 10
-CONFIDENCE = 95
+STARTTIME = 0.0
+ENDTIME = 60.0
 
-wifiPhyDrops = 0
-wifiMacDrops = 0
+BUFLEN = 32
+tcpArgBuf = ctypes.create_string_buffer(b"NewReno", BUFLEN)
+tcpArg = ctypes.c_char_p(tcpArgBuf.raw)
+berArg = ctypes.c_double(0)
 
-def WifiPhyDropCallback(packet: ns.Packet, snr: ctypes.c_double) -> None:
-    global wifiPhyDrops
-    wifiPhyDrops += 1
+cmd = ns.CommandLine(__file__)
+cmd.AddValue("tcp", "TCP variant", tcpArg, BUFLEN)
+cmd.AddValue("ber", "Bit-error rate", berArg)
+cmd.Parse(sys.argv)
 
-def WifiMacDropCallback(packet: ns.Packet) -> None:
-    global wifiMacDrops
-    wifiMacDrops += 1
+tcp = tcpArg.value.decode()
+ber = berArg.value
+
+ns.RngSeedManager.SetSeed(SEED)
+ns.Config.SetDefault("ns3::TcpL4Protocol::SocketType", 
+                     ns.StringValue("ns3::Tcp" + tcp))
 
 cpp = ns.cppyy
 cpp.cppdef("""
-    using namespace ns3;
+           using namespace ns3;
 
-    Ptr<RateErrorModel> MakeRateErrorModel(double rate) {
-        Ptr<RateErrorModel> model = CreateObject<RateErrorModel>();
-        model->SetRate(rate);
-        model->SetUnit(RateErrorModel::ERROR_UNIT_BIT);
-        return model;
-    }
+           Ptr<RateErrorModel> MakeRateErrorModel(double rate) {
+               Ptr<RateErrorModel> model = CreateObject<RateErrorModel>();
+               model->SetRate(rate);
+               model->SetUnit(RateErrorModel::ERROR_UNIT_BIT);
+               return model;
+           }
+           """)
 
-    Callback<void, Ptr<const Packet>, double>
-    MakeWifiPhyDropCallback(void(*func)(Ptr<const Packet>, double)) {
-        return MakeCallback(func);
-    }
 
-    Callback<void, Ptr<const Packet>>
-    MakeWifiMacDropCallback(void(*func)(Ptr<const Packet>)) {
-        return MakeCallback(func);
-    }
-                """)
+def main():
+    duration = ENDTIME - STARTTIME
+    filename = f"results/ber-{ber}.txt"
+
+    with open(filename, "a") as f:
+        print(SEED, duration, tcp)
+        print(SEED, duration, tcp, file=f)
+
+        for i in range(RUNS):
+            ns.RngSeedManager.SetRun(i)
+            print(f"run {i+1}/{RUNS}")
+            throughput = Simulate(ber)
+            print(throughput)
+            print(throughput, file=f)
+
+        print(file=f)
 
 
 def Simulate(ber):
@@ -108,18 +118,13 @@ def Simulate(ber):
     ns.Ipv4GlobalRoutingHelper.PopulateRoutingTables()
 
     serverIp = csmaInterfaces.GetAddress(1)
-    dest = ns.InetSocketAddress(serverIp, PORT).ConvertTo()
+    dest = ns.InetSocketAddress(serverIp, port=5000).ConvertTo()
 
     sink = ns.PacketSinkHelper("ns3::TcpSocketFactory", dest)
     sinkApp = sink.Install(server)
 
     bulk = ns.BulkSendHelper("ns3::TcpSocketFactory", dest)
     bulkApp = bulk.Install(sta)
-
-    ns.Config.ConnectWithoutContext("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/Phy/State/RxError", 
-                                    cpp.gbl.MakeWifiPhyDropCallback(WifiPhyDropCallback))
-    ns.Config.ConnectWithoutContext("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/Mac/MacRxDrop", 
-                                    cpp.gbl.MakeWifiMacDropCallback(WifiMacDropCallback))
 
     monitorHelper = ns.FlowMonitorHelper()
     monitor = monitorHelper.InstallAll()
@@ -144,41 +149,4 @@ def Simulate(ber):
     return throughput
 
 
-buf = ctypes.create_string_buffer(b"NewReno", 32)
-c_tcp = ctypes.c_char_p(buf.raw)
-c_ber = ctypes.c_double(0)
-
-cmd = ns.CommandLine(__file__)
-cmd.AddValue("tcp", "TCP variant", c_tcp, 32)
-cmd.AddValue("ber", "Bit-error rate", c_ber)
-cmd.Parse(sys.argv)
-
-ns.RngSeedManager.SetSeed(SEED)
-ns.Config.SetDefault("ns3::TcpL4Protocol::SocketType", 
-                     ns.StringValue("ns3::Tcp" + c_tcp.value.decode()))
-
-throughputs = []
-
-for i in range(RUNS):
-    ns.RngSeedManager.SetRun(i)
-    wifiPhyDrops = 0
-    wifiMacDrops = 0
-
-    print(f"Run {i + 1} started... ", end="", flush=True)
-    throughput = Simulate(c_ber.value)
-    throughputs.append(throughput)
-    print(f"Done!\nthroughput: {throughput:.3f}Kbps")
-
-a = 1 - CONFIDENCE / 100
-q = 1 - a / 2
-t = sst.t.ppf(q, df=RUNS - 1)
-
-mean = np.mean(throughputs)
-err = np.std(throughputs, ddof=1) / np.sqrt(RUNS)
-off = t * err / np.sqrt(RUNS)
-
-print(f"mean={mean}; a={a}; t={t}")
-print("throughputs:")
-for throughput in throughputs:
-    print(throughput)
-
+main()
