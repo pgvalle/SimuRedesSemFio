@@ -1,9 +1,14 @@
 from ns import ns
 import sys
 import ctypes
-import csv
+import scipy.stats as sci
+import numpy as np
 
-SEED = 54294301
+CONFIDENCE = 95
+ALPHA = 1 - CONFIDENCE / 100
+QUANTILE = 1 - ALPHA / 2
+
+SEED = 912465
 RUNS = 10
 STARTTIME = 0.0
 ENDTIME = 60.0
@@ -21,6 +26,8 @@ cmd.Parse(sys.argv)
 tcp = tcpArg.value.decode()
 ber = berArg.value
 
+print(f"params: ber={ber}, tcp={tcp}")
+
 ns.RngSeedManager.SetSeed(SEED)
 ns.Config.SetDefault("ns3::TcpL4Protocol::SocketType", 
                      ns.StringValue("ns3::Tcp" + tcp))
@@ -29,9 +36,9 @@ cpp = ns.cppyy
 cpp.cppdef("""
            using namespace ns3;
 
-           Ptr<RateErrorModel> MakeRateErrorModel(double rate) {
+           Ptr<RateErrorModel> MakeRateErrorModel(double ber) {
                Ptr<RateErrorModel> model = CreateObject<RateErrorModel>();
-               model->SetRate(rate);
+               model->SetRate(ber);
                model->SetUnit(RateErrorModel::ERROR_UNIT_BIT);
                return model;
            }
@@ -39,23 +46,23 @@ cpp.cppdef("""
 
 
 def main():
-    duration = ENDTIME - STARTTIME
-    filename = f"results/ber-{ber}.txt"
+    throughputs = []
 
-    with open(filename, "a") as f:
-        print(SEED, duration, tcp)
-        print(SEED, duration, tcp, file=f)
+    for i in range(RUNS):
+        print(f"run {i+1} out of {RUNS}... ", end="", flush=True)
 
-        for i in range(RUNS):
-            ns.RngSeedManager.SetRun(i)
-            print(f"run {i+1}/{RUNS}")
+        ns.RngSeedManager.SetRun(i)
+        throughput = Simulate()
+        throughputs.append(throughput)
+        print(throughput)
 
-            throughput = Simulate(ber)
-            print(throughput)
-            print(throughput, file=f)
+    t = sci.t.ppf(QUANTILE, df=RUNS-1)
+    off =  t * np.std(throughputs, ddof=1) / np.sqrt(RUNS)
+    mean = np.mean(throughputs)
+    print(f"{CONFIDENCE}% interval: {mean} ± {off}")
 
 
-def Simulate(ber):
+def Simulate():
     nodes = ns.NodeContainer()
     nodes.Create(3)
     sta = nodes.Get(0)
@@ -75,7 +82,7 @@ def Simulate(ber):
     wifiPhy.SetChannel(wifiChannel.Create())
     wifiPhy.SetErrorRateModel("ns3::YansErrorRateModel")
 
-    errorModel = ns.cppyy.gbl.MakeRateErrorModel(ber)
+    errorModel = cpp.gbl.MakeRateErrorModel(ber)
     wifiPhy.Set("PostReceptionErrorModel", ns.PointerValue(errorModel))
 
     wifi = ns.WifiHelper()
@@ -99,7 +106,7 @@ def Simulate(ber):
     csmaNodes.Add(server)
 
     csma = ns.CsmaHelper()
-    csma.SetChannelAttribute("DataRate", ns.StringValue("1Gbps"))
+    csma.SetChannelAttribute("DataRate", ns.StringValue("100Mbps"))
     csma.SetChannelAttribute("Delay", ns.TimeValue(ns.Time("0.5us")))
     csmaDevs = csma.Install(csmaNodes)
 
@@ -123,6 +130,7 @@ def Simulate(ber):
     sinkApp = sink.Install(server)
 
     bulk = ns.BulkSendHelper("ns3::TcpSocketFactory", dest)
+    bulk.SetAttribute("SendSize", ns.UintegerValue(1400))
     bulkApp = bulk.Install(sta)
 
     monitorHelper = ns.FlowMonitorHelper()
