@@ -1,96 +1,89 @@
-import scipy.stats as sci
-import os
-import numpy as np
+import matplotlib
+matplotlib.use('gtk3agg') # Keeping your backend setting
+
 import matplotlib.pyplot as plt
+import numpy as np
+import csv
 
-CONFIDENCE = 95
-ALPHA = 1 - CONFIDENCE / 100
-QUANTILE = 1 - ALPHA / 2
-FOLDER = "results"
+# --- CONFIGURATION ---
+filename = 'results-99.csv'
+target_delay = input('target delay: ')
 
-def calculateConfidenceInterval(samples):
-    n = len(samples)
-    t = sci.t.ppf(QUANTILE, df=n-1)
-    err = np.std(samples, ddof=1) / np.sqrt(n)
-    off =  t * err
-    return np.mean(samples), off
+# --- 1. LOAD AND FILTER DATA (Replacing Pandas) ---
+filtered_data = []
+found_variants = set()
+found_bers = set()
 
-def readFile(path):
-    file = open(path, "r")
-    content = file.read()
+# A dictionary to act as a fast lookup: (variant, ber) -> (mean, ci)
+data_lookup = {}
 
-    variants = []
-    variantsSamples = []
+with open(filename, 'r', newline='') as csvfile:
+    reader = csv.DictReader(csvfile)
 
-    for line in content.splitlines():
-        info = line.split()
-        # line with meta-info
-        if len(info) > 1:
-            _, _, tcp = info
-            variants.append(tcp)
-            variantsSamples.append([])
-            continue
-        
-        sample = double(info[0])
-        variantsSamples[-1].append(sample)
+    for row in reader:
+        # Filter by delay immediately
+        # Note: We strip whitespace just in case the CSV has spaces like ' 1ms'
+        if row['delay'].strip() == target_delay:
 
-    fig, ax = plt.subplots()
+            # Extract values
+            variant = row['tcp']
 
+            # Convert numeric strings to floats
+            try:
+                ber = float(row['ber'])
+                mean_val = float(row['mean'])
+                ci_val = float(row['off'])
+            except ValueError:
+                print(f'Skipping invalid row: {row}')
+                continue
 
-    file.close()
+            # Store for plotting
+            found_variants.add(variant)
+            found_bers.add(ber)
 
-files = os.listdir(FOLDER)
-"""
-for name in files:
-    path = f"{FOLDER}/{name}"
-    file = open(path, "r")
-    content = file.read()
+            # Save to lookup table for easy access later
+            data_lookup[(variant, ber)] = (mean_val, ci_val)
 
-    tcpVariants = {}
-    tcp = ""
+# Convert sets to sorted lists
+variants = sorted(list(found_variants))
+bers = sorted(list(found_bers))
 
-    for line in content.splitlines():
-        info = line.split()
-        # line with meta-info
-        if len(info) > 1:
-            _, _, tcp = info
-            tcpVariants[tcp] = []
-            continue
-        
-        sample = float(info[0]) 
-        tcpVariants[tcp].append(sample)
+# --- PLOTTING ---
+# Setup the plot
+x = np.arange(len(bers))  # the label locations
+width = 0.1  # the width of the bars
+multiplier = 0
 
-    file.close()
-"""
+fig, ax = plt.subplots(layout='constrained')
 
-cats = ['A', 'B', 'C', 'D']
-vals1 = [4, 7, 1, 8]
-vals2 = [5, 6, 2, 9]
+# Loop through each TCP variant
+for variant in variants:
+    means = []
+    cis = []
 
-# Create a figure and an array of axes objects (in this case, 1 row, 2 columns)
-fig, ax = plt.subplots(1, 2, figsize=(10, 4))
+    # For every BER on the X-axis, find the matching throughput for this variant
+    for b in bers:
+        # Look up the value in our dictionary.
+        # Default to (0, 0) if this specific combo doesn't exist
+        val = data_lookup.get((variant, b), (0.0, 0.0))
+        means.append(val[0])
+        cis.append(val[1])
 
-# --- First Subplot (ax[0]) ---
-w = 0.4 # bar width
-x = np.arange(len(cats))
-ax[0].bar(x - w/2, vals1, width=w, label='Set 1')
-ax[0].bar(x + w/2, vals2, width=w, label='Set 2')
-ax[0].set_xticks(x)
-ax[0].set_xticklabels(cats)
-ax[0].set_ylabel('Values')
-ax[0].set_title('Grouped Bar Chart 1')
-ax[0].legend()
+    # Calculate bar offset
+    offset = width * multiplier
+    rects = ax.bar(x + offset, means, width, yerr=cis, label=variant, capsize=4)
+    multiplier += 1
 
-# --- Second Subplot (ax[1]) ---
-ax[1].bar(x, vals2, width=w, color='orange', label='Set 2')
-ax[1].set_xticks(x)
-ax[1].set_xticklabels(cats)
-ax[1].set_ylabel('Values')
-ax[1].set_title('Grouped Bar Chart 2')
-ax[1].legend()
+# --- STYLING ---
+ax.set_ylabel('Throughput (Mbps)')
+ax.set_title(f'TCP Performance with delay = {target_delay}')
+# Center the x-ticks in the middle of the group of bars
+ax.set_xticks(x + width * (len(variants) - 1) / 2)
+# Format BER labels (using scientific notation often looks cleaner for BER)
+ax.set_xticklabels([f'ber={100*d}%' for d in bers])
+ax.legend(title='TCP Variant')
+ax.grid(axis='y', linestyle='--', alpha=0.7)
 
-# Adjust layout to prevent titles/labels from overlapping
-plt.tight_layout()
-plt.ion()
+# Save and Show
+plt.savefig(f'result_delay_{target_delay}.pdf')
 plt.show()
-
