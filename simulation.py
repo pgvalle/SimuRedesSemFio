@@ -1,8 +1,7 @@
 from ns import ns
 import csv
-import utils
-
-utils.printEnabled = True
+import scipy.stats as sci
+import numpy as np
 
 SEED = 1
 ROUNDS = 20
@@ -12,11 +11,12 @@ TCPS = ['NewReno', 'Vegas', 'Veno', 'WestwoodPlus']
 BERS = [1e-6, 1e-5, 1e-4, 1e-3]
 DELAYS = ['1ms', '10ms', '20ms', '50ms']
 
-cpp = ns.cppyy
-cpp.cppdef('''
+
+ns.cppyy.cppdef('''
            using namespace ns3;
 
-           Ptr<RateErrorModel> MakeRateErrorModel(double ber) {
+           Ptr<RateErrorModel> MakeRateErrorModel(double ber)
+           {
                Ptr<RateErrorModel> model = CreateObject<RateErrorModel>();
                model->SetRate(ber);
                model->SetUnit(RateErrorModel::ERROR_UNIT_BIT);
@@ -24,10 +24,22 @@ cpp.cppdef('''
            }
            ''')
 
-ns.RngSeedManager.SetSeed(SEED)
+
+def confidenceOffset(samples, confidence=0.95):
+    alpha = 1 - confidence
+    quantile = 1 - alpha / 2
+
+    n = len(samples)
+    t = sci.t.ppf(quantile, df=n-1)
+    offset = t * np.std(samples, ddof=1) / np.sqrt(n)
+
+    return offset
+
 
 def main():
-    entries = [['tcp', 'ber', 'delay', 'mean', 'off']]
+    ns.RngSeedManager.SetSeed(SEED)
+
+    entries = [['tcp', 'ber', 'delay', 'mean', 'off99', 'off95']]
 
     for tcp in TCPS:
         ns.Config.SetDefault('ns3::TcpL4Protocol::SocketType',
@@ -35,26 +47,23 @@ def main():
 
         for ber in BERS:
             for delay in DELAYS:
-                utils.myprint(f'runing for tcp={tcp}, ber={ber}, delay={delay}')
-                utils.printEnabled = False
+                print(f'params: tcp={tcp}, ber={ber}, delay={delay}')
 
                 throughputs = []
                 for i in range(1, ROUNDS + 1):
-                    utils.myprint(f' round {i:02d} out of {ROUNDS}... ')
+                    # print(f' round {i:02d} out of {ROUNDS}')
 
                     ns.RngSeedManager.SetRun(i)
-
                     throughput = Simulate(ber, delay)
                     throughputs.append(throughput)
-                    utils.myprint(f'  result: {throughput}')
 
-                mean, off = utils.interval(throughputs, confidence=0.99)
-                entries.append([tcp, ber, delay, mean, off])
+                mean = np.mean(throughputs)
+                off99 = confidenceOffset(throughputs, confidence=0.99)
+                off95 = confidenceOffset(throughputs, confidence=0.95)
+                entries.append([tcp, ber, delay, mean, off99, off95])
+                print(f' mean: {mean}, off99: {off99}, off95 {off95}')
 
-                utils.printEnabled = True
-                utils.myprint(f' mean: {mean}, off: {off}')
-
-    with open('results-99.csv', 'a+', newline='') as file:
+    with open('results.csv', 'a+', newline='') as file:
         writer = csv.writer(file)
 
         if file.tell() == 0: # only write headers if file was empty
@@ -80,7 +89,7 @@ def Simulate(ber, delay):
     wifiChannel.SetPropagationDelay('ns3::ConstantSpeedPropagationDelayModel')
     wifiChannel.AddPropagationLoss('ns3::FixedRssLossModel', 'Rss', ns.DoubleValue(0.0))
     # put artificial ber on phy layer
-    errorModel = cpp.gbl.MakeRateErrorModel(ber)
+    errorModel = ns.cppyy.gbl.MakeRateErrorModel(ber)
     wifiPhy = ns.YansWifiPhyHelper()
     wifiPhy.SetChannel(wifiChannel.Create())
     wifiPhy.SetErrorRateModel('ns3::YansErrorRateModel')
