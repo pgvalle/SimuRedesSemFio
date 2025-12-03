@@ -76,16 +76,16 @@ for tcp in tcps:
     multiplier += 1
 
 # --- STYLING ---
-ax.set_ylabel('Throughput (Kbps)')
-ax.set_title(f'TCP Performance with delay = {targetDelay}')
+ax.set_ylabel('Vazão (Kbps)')
+ax.set_title(f'Desempenho com atraso = {targetDelay}')
 # Center the x-ticks in the middle of the group of bars
 ax.set_xticks(x + width * (len(tcps) - 1) / 2)
 # Format BER labels (using scientific notation often looks cleaner for BER)
 ax.set_xticklabels([f'ber={d}' for d in bers])
 # ax.set_ylim(top=2600, bottom=50)
-ax.legend(title='TCP Variant')
+ax.legend(title='Versão TCP')
 ax.grid(axis='y', linestyle='--', alpha=0.7)
 
 # Save and Show
-plt.savefig(f'result_delay_{targetDelay}_{targetOff}.pdf')
+# plt.savefig(f'result_delay_{targetDelay}_{targetOff}.pdf')
 plt.show()

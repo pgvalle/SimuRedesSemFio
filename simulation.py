@@ -4,26 +4,34 @@ import scipy.stats as sci
 import numpy as np
 
 SEED = 1
-ROUNDS = 20
+ROUNDS = 10
 DURATION = 60
 
 TCPS = ['NewReno', 'Vegas', 'Veno', 'WestwoodPlus']
 BERS = [1e-6, 1e-5, 1e-4, 1e-3]
 DELAYS = ['1ms', '10ms', '20ms', '50ms']
 
-
 ns.cppyy.cppdef('''
-           using namespace ns3;
+        using namespace ns3;
 
-           Ptr<RateErrorModel> MakeRateErrorModel(double ber)
-           {
-               Ptr<RateErrorModel> model = CreateObject<RateErrorModel>();
-               model->SetRate(ber);
-               model->SetUnit(RateErrorModel::ERROR_UNIT_BIT);
-               return model;
-           }
+        Ptr<RateErrorModel> MakeRateErrorModel(double ber)
+        {
+            Ptr<RateErrorModel> model = CreateObject<RateErrorModel>();
+            model->SetRate(ber);
+            model->SetUnit(RateErrorModel::ERROR_UNIT_BIT);
+            return model;
+        }
+
+        Callback<void, Ptr<const Packet>> MakeTxCallback(void(*callback)(Ptr<const Packet>))
+        {
+            return callback;
+        }
+
+        Callback<void, Ptr<const Packet>, const Address&> MakeRxCallback(void(*callback)(Ptr<const Packet>, const Address&))
+        {
+            return callback;
+        }
            ''')
-
 
 def confidenceOffset(samples, confidence=0.95):
     alpha = 1 - confidence
@@ -45,14 +53,13 @@ def main():
         ns.Config.SetDefault('ns3::TcpL4Protocol::SocketType',
                              ns.StringValue('ns3::Tcp' + tcp))
 
-        for ber in BERS:
-            for delay in DELAYS:
-                print(f'params: tcp={tcp}, ber={ber}, delay={delay}')
+        for delay in DELAYS:
+            for ber in BERS:
+                print(f'params: tcp={tcp}, delay={delay}, ber={ber}')
 
                 throughputs = []
                 for i in range(1, ROUNDS + 1):
-                    # print(f' round {i:02d} out of {ROUNDS}')
-
+                    print(f' {i}', end='', flush=True)
                     ns.RngSeedManager.SetRun(i)
                     throughput = Simulate(ber, delay)
                     throughputs.append(throughput)
@@ -63,12 +70,9 @@ def main():
                 entries.append([tcp, ber, delay, mean, off99, off95])
                 print(f' mean: {mean}, off99: {off99}, off95 {off95}')
 
-    with open('results.csv', 'a+', newline='') as file:
+    with open('results.csv', 'w', newline='') as file:
         writer = csv.writer(file)
-
-        if file.tell() == 0: # only write headers if file was empty
-            writer.writerow(entries[0])
-        writer.writerows(entries[1:])
+        writer.writerows(entries)
 
 
 def Simulate(ber, delay):
@@ -139,24 +143,36 @@ def Simulate(ber, delay):
     sinkApp = sink.Install(server)
 
     bulk = ns.BulkSendHelper('ns3::TcpSocketFactory', dest)
+    bulk.SetAttribute('SendSize', ns.UintegerValue(1400))
     bulkApp = bulk.Install(sta)
 
-    monitorHelper = ns.FlowMonitorHelper()
-    monitor = monitorHelper.InstallAll()
+    global timeFirstTx, timeLastRx
+    timeFirstTx = ns.Time(0)
+    timeLastRx = ns.Time(0)
 
-    monitor.Start(ns.Seconds(0))
+    def TxCallback(pkt: ns.Packet) -> None:
+        global timeFirstTx
+        if timeFirstTx == ns.Time(0):
+            timeFirstTx = ns.Simulator.Now()
+
+    def RxCallback(pkt: ns.Packet, addr: ns.Address) -> None:
+        global timeLastRx
+        timeLastRx = ns.Simulator.Now()
+
+    ns.Config.ConnectWithoutContext('/NodeList/*/ApplicationList/*/$ns3::BulkSendApplication/Tx',
+                                    ns.cppyy.gbl.MakeTxCallback(TxCallback))
+    ns.Config.ConnectWithoutContext('/NodeList/*/ApplicationList/*/$ns3::PacketSink/Rx',
+                                    ns.cppyy.gbl.MakeRxCallback(RxCallback))
+
     sinkApp.Start(ns.Seconds(0))
     bulkApp.Start(ns.Seconds(1))
 
     ns.Simulator.Stop(ns.Seconds(DURATION + 1))
     ns.Simulator.Run()
 
-    stats = monitor.GetFlowStats()
-    throughput = 0
-    for flowId, flow in stats:
-        time = flow.timeLastRxPacket - flow.timeFirstTxPacket
-        throughput = 8e-3 * (flow.rxBytes / time.GetSeconds())
-        break
+    rx = sinkApp.Get(0).GetTotalRx()
+    delta = (timeLastRx - timeFirstTx).GetSeconds()
+    throughput = 8e-3 * (rx / delta)
 
     ns.Simulator.Destroy()
     return throughput
