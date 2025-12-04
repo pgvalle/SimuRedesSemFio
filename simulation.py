@@ -11,29 +11,18 @@ TCPS = ['NewReno', 'Vegas', 'Veno', 'WestwoodPlus']
 BERS = [1e-6, 1e-5, 1e-4, 1e-3]
 DELAYS = ['1ms', '10ms', '20ms', '50ms']
 
-ns.cppyy.cppdef('''
+cpp = ns.cppyy
+cpp.cppdef('''
         using namespace ns3;
 
-        Ptr<RateErrorModel> MakeRateErrorModel(double ber)
+        template<typename... Args>
+        Callback<void, Args...> MakeMyCallback(void(*function)(Args...))
         {
-            Ptr<RateErrorModel> model = CreateObject<RateErrorModel>();
-            model->SetRate(ber);
-            model->SetUnit(RateErrorModel::ERROR_UNIT_BIT);
-            return model;
-        }
-
-        Callback<void, Ptr<const Packet>> MakeTxCallback(void(*callback)(Ptr<const Packet>))
-        {
-            return callback;
-        }
-
-        Callback<void, Ptr<const Packet>, const Address&> MakeRxCallback(void(*callback)(Ptr<const Packet>, const Address&))
-        {
-            return callback;
+            return MakeCallback(function);
         }
            ''')
 
-def confidenceOffset(samples, confidence=0.95):
+def ConfidenceOffset(samples, confidence=0.95):
     alpha = 1 - confidence
     quantile = 1 - alpha / 2
 
@@ -44,7 +33,7 @@ def confidenceOffset(samples, confidence=0.95):
     return offset
 
 
-def main():
+def Main():
     ns.RngSeedManager.SetSeed(SEED)
 
     entries = [['tcp', 'ber', 'delay', 'mean', 'off99', 'off95']]
@@ -65,8 +54,8 @@ def main():
                     throughputs.append(throughput)
 
                 mean = np.mean(throughputs)
-                off99 = confidenceOffset(throughputs, confidence=0.99)
-                off95 = confidenceOffset(throughputs, confidence=0.95)
+                off99 = ConfidenceOffset(throughputs, confidence=0.99)
+                off95 = ConfidenceOffset(throughputs, confidence=0.95)
                 entries.append([tcp, ber, delay, mean, off99, off95])
                 print(f' mean: {mean}, off99: {off99}, off95 {off95}')
 
@@ -88,12 +77,16 @@ def Simulate(ber, delay):
     mobility.SetMobilityModel('ns3::ConstantPositionMobilityModel')
     mobility.Install(nodes)
 
-    # wifi phy layer with no signal loss
+    # wifi with no signal loss
     wifiChannel = ns.YansWifiChannelHelper()
     wifiChannel.SetPropagationDelay('ns3::ConstantSpeedPropagationDelayModel')
     wifiChannel.AddPropagationLoss('ns3::FixedRssLossModel', 'Rss', ns.DoubleValue(0.0))
-    # put artificial ber on phy layer
-    errorModel = ns.cppyy.gbl.MakeRateErrorModel(ber)
+
+    # artificial ber on phy layer
+    errorModel = ns.CreateObject[ns.RateErrorModel]()
+    errorModel.SetRate(ber)
+    errorModel.SetUnit(ns.RateErrorModel.ERROR_UNIT_BIT)
+
     wifiPhy = ns.YansWifiPhyHelper()
     wifiPhy.SetChannel(wifiChannel.Create())
     wifiPhy.SetErrorRateModel('ns3::YansErrorRateModel')
@@ -114,14 +107,15 @@ def Simulate(ber, delay):
     wifiDevs.Add(staDev)
     wifiDevs.Add(apDev)
 
-    # ethernet
+    # ethernet nodes
     csmaNodes = ns.NodeContainer()
     csmaNodes.Add(ap)
     csmaNodes.Add(server)
-    # ethernet nics
+    # ethernet
     csma = ns.CsmaHelper()
     csma.SetChannelAttribute('DataRate', ns.StringValue('100Mbps'))
     csma.SetChannelAttribute('Delay', ns.TimeValue(ns.Time(delay)))
+    # ethernet nics
     csmaDevs = csma.Install(csmaNodes)
 
     addr = ns.Ipv4AddressHelper()
@@ -136,12 +130,13 @@ def Simulate(ber, delay):
 
     ns.Ipv4GlobalRoutingHelper.PopulateRoutingTables()
 
+    # server ip address with port
     serverIp = csmaInterfaces.GetAddress(1)
     dest = ns.InetSocketAddress(serverIp, port=5000).ConvertTo()
-
+    # sink application on server
     sink = ns.PacketSinkHelper('ns3::TcpSocketFactory', dest)
     sinkApp = sink.Install(server)
-
+    # bulk application on ap
     bulk = ns.BulkSendHelper('ns3::TcpSocketFactory', dest)
     bulk.SetAttribute('SendSize', ns.UintegerValue(1400))
     bulkApp = bulk.Install(sta)
@@ -160,9 +155,9 @@ def Simulate(ber, delay):
         timeLastRx = ns.Simulator.Now()
 
     ns.Config.ConnectWithoutContext('/NodeList/*/ApplicationList/*/$ns3::BulkSendApplication/Tx',
-                                    ns.cppyy.gbl.MakeTxCallback(TxCallback))
+                                    cpp.gbl.MakeMyCallback['ns3::Ptr<const ns3::Packet>'](TxCallback))
     ns.Config.ConnectWithoutContext('/NodeList/*/ApplicationList/*/$ns3::PacketSink/Rx',
-                                    ns.cppyy.gbl.MakeRxCallback(RxCallback))
+                                    cpp.gbl.MakeMyCallback['ns3::Ptr<const ns3::Packet>', 'const ns3::Address&'](RxCallback))
 
     sinkApp.Start(ns.Seconds(0))
     bulkApp.Start(ns.Seconds(1))
@@ -172,10 +167,10 @@ def Simulate(ber, delay):
 
     rx = sinkApp.Get(0).GetTotalRx()
     delta = (timeLastRx - timeFirstTx).GetSeconds()
-    throughput = 8e-3 * (rx / delta)
+    throughput = 8e-3 * (rx / delta) if delta > 0 else 0
 
     ns.Simulator.Destroy()
     return throughput
 
 
-main()
+Main()
