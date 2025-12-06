@@ -8,7 +8,7 @@ ROUNDS = 10
 DURATION = 60
 
 TCPS = ['NewReno', 'Vegas', 'Veno', 'WestwoodPlus']
-BERS = [1e-6, 1e-5, 1e-4, 1e-3]
+BERS = [1e-5, 1e-4, 1e-3, 1e-2]
 DELAYS = ['1ms', '10ms', '20ms', '50ms']
 
 cpp = ns.cppyy
@@ -22,21 +22,15 @@ cpp.cppdef('''
         }
            ''')
 
-def ConfidenceOffset(samples, confidence=0.95):
-    alpha = 1 - confidence
-    quantile = 1 - alpha / 2
-
-    n = len(samples)
-    t = sci.t.ppf(quantile, df=n-1)
-    offset = t * np.std(samples, ddof=1) / np.sqrt(n)
-
-    return offset
-
-
 def Main():
-    ns.RngSeedManager.SetSeed(SEED)
+    file = open('results.csv', 'a+', newline='')
+    writer = csv.writer(file)
 
-    entries = [['tcp', 'ber', 'delay', 'mean', 'off99', 'off95']]
+    # the file is new. Write the column names
+    if file.tell() == 0:
+        writer.writerow(['tcp', 'ber', 'delay', 'mean', 'off99', 'off95'])
+
+    ns.RngSeedManager.SetSeed(SEED)
 
     for tcp in TCPS:
         ns.Config.SetDefault('ns3::TcpL4Protocol::SocketType',
@@ -48,20 +42,28 @@ def Main():
 
                 throughputs = []
                 for i in range(1, ROUNDS + 1):
-                    print(f' {i}', end='', flush=True)
                     ns.RngSeedManager.SetRun(i)
                     throughput = Simulate(ber, delay)
                     throughputs.append(throughput)
+                    print(f'{throughput}')
 
                 mean = np.mean(throughputs)
                 off99 = ConfidenceOffset(throughputs, confidence=0.99)
                 off95 = ConfidenceOffset(throughputs, confidence=0.95)
-                entries.append([tcp, ber, delay, mean, off99, off95])
+                writer.writerow([tcp, ber, delay, mean, off99, off95])
                 print(f' mean: {mean}, off99: {off99}, off95 {off95}')
 
-    with open('results.csv', 'w', newline='') as file:
-        writer = csv.writer(file)
-        writer.writerows(entries)
+    file.close()
+
+def ConfidenceOffset(samples, confidence=0.95):
+    alpha = 1 - confidence
+    quantile = 1 - alpha / 2
+
+    n = len(samples)
+    t = sci.t.ppf(quantile, df=n-1)
+    offset = t * np.std(samples, ddof=1) / np.sqrt(n)
+
+    return offset
 
 
 def Simulate(ber, delay):
@@ -145,7 +147,7 @@ def Simulate(ber, delay):
     timeFirstTx = ns.Time(0)
     timeLastRx = ns.Time(0)
 
-    def TxCallback(pkt: ns.Packet) -> None:
+    def TxCallback(pkt: ns.Ptr[ns.Packet]) -> None:
         global timeFirstTx
         if timeFirstTx == ns.Time(0):
             timeFirstTx = ns.Simulator.Now()
@@ -155,9 +157,9 @@ def Simulate(ber, delay):
         timeLastRx = ns.Simulator.Now()
 
     ns.Config.ConnectWithoutContext('/NodeList/*/ApplicationList/*/$ns3::BulkSendApplication/Tx',
-                                    cpp.gbl.MakeMyCallback['ns3::Ptr<const ns3::Packet>'](TxCallback))
+                                    cpp.gbl.MakeMyCallback['Ptr<const Packet>'](TxCallback))
     ns.Config.ConnectWithoutContext('/NodeList/*/ApplicationList/*/$ns3::PacketSink/Rx',
-                                    cpp.gbl.MakeMyCallback['ns3::Ptr<const ns3::Packet>', 'const ns3::Address&'](RxCallback))
+                                    cpp.gbl.MakeMyCallback['Ptr<const Packet>', 'const Address&'](RxCallback))
 
     sinkApp.Start(ns.Seconds(0))
     bulkApp.Start(ns.Seconds(1))
