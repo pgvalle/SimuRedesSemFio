@@ -6,7 +6,7 @@ import numpy as np
 import csv
 
 # --- CONFIGURATION ---
-filename = 'results.csv'
+filename = 'results1.csv'
 targetDelay = input('target delay: ')
 targetOff = input('target confidence interval: ')
 
