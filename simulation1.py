@@ -88,15 +88,15 @@ def Simulate(ber, delay):
     wifiChannel.AddPropagationLoss('ns3::FixedRssLossModel',
                                    'Rss', ns.DoubleValue(0.0))
 
-    # artificial ber on phy layer
-    errorModel = ns.CreateObject[ns.RateErrorModel]()
-    errorModel.SetRate(ber)
-    errorModel.SetUnit(ns.RateErrorModel.ERROR_UNIT_BIT)
+    # artificial ber
+    berVar = ns.CreateObject[ns.RateErrorModel]()
+    berVar.SetRate(ber)
+    berVar.SetUnit(ns.RateErrorModel.ERROR_UNIT_BIT)
 
     wifiPhy = ns.YansWifiPhyHelper()
     wifiPhy.SetChannel(wifiChannel.Create())
     wifiPhy.SetErrorRateModel('ns3::YansErrorRateModel')
-    wifiPhy.Set('PostReceptionErrorModel', ns.PointerValue(errorModel))
+    wifiPhy.Set('PostReceptionErrorModel', ns.PointerValue(berVar))
 
     wifi = ns.WifiHelper()
     wifi.SetStandard(ns.WIFI_STANDARD_80211ac)
