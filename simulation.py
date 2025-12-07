@@ -8,7 +8,7 @@ ROUNDS = 10
 DURATION = 60
 
 TCPS = ['NewReno', 'Vegas', 'Veno', 'WestwoodPlus']
-BERS = [1e-5, 1e-4, 1e-3, 1e-2]
+BERS = [1e-5, 1e-4, 1e-3]
 DELAYS = ['1ms', '10ms', '20ms', '50ms']
 
 cpp = ns.cppyy
@@ -55,6 +55,7 @@ def Main():
 
     file.close()
 
+
 def ConfidenceOffset(samples, confidence=0.95):
     alpha = 1 - confidence
     quantile = 1 - alpha / 2
@@ -77,12 +78,15 @@ def Simulate(ber, delay):
     # all nodes are static
     mobility = ns.MobilityHelper()
     mobility.SetMobilityModel('ns3::ConstantPositionMobilityModel')
+    mobility.SetPositionAllocator('ns3::GridPositionAllocator',
+                                  'DeltaX', ns.DoubleValue(10))
     mobility.Install(nodes)
 
     # wifi with no signal loss
     wifiChannel = ns.YansWifiChannelHelper()
     wifiChannel.SetPropagationDelay('ns3::ConstantSpeedPropagationDelayModel')
-    wifiChannel.AddPropagationLoss('ns3::FixedRssLossModel', 'Rss', ns.DoubleValue(0.0))
+    wifiChannel.AddPropagationLoss('ns3::FixedRssLossModel',
+                                   'Rss', ns.DoubleValue(0.0))
 
     # artificial ber on phy layer
     errorModel = ns.CreateObject[ns.RateErrorModel]()
@@ -135,13 +139,13 @@ def Simulate(ber, delay):
     # server ip address with port
     serverIp = csmaInterfaces.GetAddress(1)
     dest = ns.InetSocketAddress(serverIp, port=5000).ConvertTo()
-    # sink application on server
-    sink = ns.PacketSinkHelper('ns3::TcpSocketFactory', dest)
-    sinkApp = sink.Install(server)
     # bulk application on ap
     bulk = ns.BulkSendHelper('ns3::TcpSocketFactory', dest)
     bulk.SetAttribute('SendSize', ns.UintegerValue(1400))
     bulkApp = bulk.Install(sta)
+    # sink application on server
+    sink = ns.PacketSinkHelper('ns3::TcpSocketFactory', dest)
+    sinkApp = sink.Install(server)
 
     global timeFirstTx, timeLastRx
     timeFirstTx = ns.Time(0)
@@ -152,14 +156,14 @@ def Simulate(ber, delay):
         if timeFirstTx == ns.Time(0):
             timeFirstTx = ns.Simulator.Now()
 
-    def RxCallback(pkt: ns.Packet, addr: ns.Address) -> None:
+    def RxCallback(pkt: ns.Ptr[ns.Packet], addr: ns.Address) -> None:
         global timeLastRx
         timeLastRx = ns.Simulator.Now()
 
-    ns.Config.ConnectWithoutContext('/NodeList/*/ApplicationList/*/$ns3::BulkSendApplication/Tx',
-                                    cpp.gbl.MakeMyCallback['Ptr<const Packet>'](TxCallback))
-    ns.Config.ConnectWithoutContext('/NodeList/*/ApplicationList/*/$ns3::PacketSink/Rx',
-                                    cpp.gbl.MakeMyCallback['Ptr<const Packet>', 'const Address&'](RxCallback))
+    bulkRef = bulkApp.Get(0)
+    bulkRef.TraceConnectWithoutContext('Tx', cpp.gbl.MakeMyCallback['Ptr<const Packet>'](TxCallback))
+    sinkRef = sinkApp.Get(0)
+    sinkRef.TraceConnectWithoutContext('Rx', cpp.gbl.MakeMyCallback['Ptr<const Packet>', 'const Address&'](RxCallback))
 
     sinkApp.Start(ns.Seconds(0))
     bulkApp.Start(ns.Seconds(1))
@@ -167,7 +171,7 @@ def Simulate(ber, delay):
     ns.Simulator.Stop(ns.Seconds(DURATION + 1))
     ns.Simulator.Run()
 
-    rx = sinkApp.Get(0).GetTotalRx()
+    rx = sinkRef.GetTotalRx()
     delta = (timeLastRx - timeFirstTx).GetSeconds()
     throughput = 8e-3 * (rx / delta) if delta > 0 else 0
 
