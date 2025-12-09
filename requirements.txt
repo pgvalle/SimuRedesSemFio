@@ -15,4 +15,5 @@ pycairo==1.29.0
 PyGObject==3.38.0
 pyparsing==3.2.5
 python-dateutil==2.9.0.post0
+scipy==1.15.3
 six==1.17.0
