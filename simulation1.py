@@ -8,7 +8,7 @@ ROUNDS = 10
 DURATION = 60
 
 TCPS = ['NewReno', 'Vegas', 'Veno', 'WestwoodPlus']
-BERS = [1e-5, 1e-4, 1e-3]
+BERS = [1e-6, 1e-5, 1e-4, 1e-3]
 DELAYS = ['1ms', '10ms', '20ms', '50ms']
 
 cpp = ns.cppyy
@@ -78,8 +78,7 @@ def Simulate(ber, delay):
     # all nodes are static
     mobility = ns.MobilityHelper()
     mobility.SetMobilityModel('ns3::ConstantPositionMobilityModel')
-    mobility.SetPositionAllocator('ns3::GridPositionAllocator',
-                                  'DeltaX', ns.DoubleValue(10))
+    mobility.SetPositionAllocator('ns3::GridPositionAllocator')
     mobility.Install(nodes)
 
     # wifi with no signal loss
