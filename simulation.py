@@ -23,7 +23,7 @@ cpp.cppdef('''
            ''')
 
 def Main():
-    file = open('results1.csv', 'a+', newline='')
+    file = open('results.csv', 'a+', newline='')
     writer = csv.writer(file)
 
     # the file is new. Write the column names

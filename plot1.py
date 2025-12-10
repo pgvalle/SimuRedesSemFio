@@ -6,9 +6,12 @@ import numpy as np
 import csv
 
 # --- CONFIGURATION ---
-filename = 'results1.csv'
+filename = 'results.csv'
 targetDelay = input('target delay: ')
 targetOff = input('target confidence interval: ')
+
+FONT_SIZE = 11.5
+plt.rcParams['font.size'] = FONT_SIZE
 
 # --- LOAD AND FILTER DATA ---
 filteredData = []
@@ -50,7 +53,7 @@ bers = sorted(list(foundBERs))
 
 # --- PLOTTING ---
 # Setup the plot
-groupDistance = 0.75
+groupDistance = 0.6
 x = np.arange(len(bers)) * groupDistance # the label locations
 width = 0.1  # the width of the bars
 multiplier = 0
@@ -77,11 +80,12 @@ for tcp in tcps:
 
 # --- STYLING ---
 ax.set_ylabel('Vazão (Kbps)')
+ax.tick_params(axis='y')
 ax.set_title(f'Desempenho com atraso = {targetDelay}')
 # Center the x-ticks in the middle of the group of bars
 ax.set_xticks(x + width * (len(tcps) - 1) / 2)
 # Format BER labels (using scientific notation often looks cleaner for BER)
-ax.set_xticklabels([f'ber={d}' for d in bers])
+ax.set_xticklabels([f'BER={d}' for d in bers])
 # ax.set_ylim(top=2600, bottom=50)
 ax.legend(title='Versão TCP')
 ax.grid(axis='y', linestyle='--', alpha=0.7)
