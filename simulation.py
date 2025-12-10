@@ -4,7 +4,7 @@ import scipy.stats as sci
 import numpy as np
 
 SEED = 1
-ROUNDS = 10
+ROUNDS = 20
 DURATION = 60
 
 TCPS = ['NewReno', 'Vegas', 'Veno', 'WestwoodPlus']
