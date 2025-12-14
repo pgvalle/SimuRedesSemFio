@@ -11,7 +11,6 @@ target_off_col = 'off95'
 FONT_SIZE = 11.5
 plt.rcParams['font.size'] = FONT_SIZE
 
-# Data structure: {tcp_variant: [(delay_int, mean, error), ...]}
 data = {}
 
 with open(filename, 'r', newline='') as f:
@@ -19,14 +18,12 @@ with open(filename, 'r', newline='') as f:
     for row in reader:
         try:
             ber = float(row['ber'])
-            # Filter for BER = 1e-4 (0.0001)
             if abs(ber - target_ber) > 1e-9:
                 continue
             
             tcp = row['tcp']
             delay_str = row['delay']
-            
-            # Parse delay "1ms" -> 1 (int) for correct sorting
+
             delay_val = int(delay_str.replace('ms', '').strip())
             
             mean = float(row['mean'])
@@ -39,14 +36,11 @@ with open(filename, 'r', newline='') as f:
         except ValueError:
             continue
 
-# Setup Plot
 plt.figure(figsize=(10, 6))
 markers = ['o', 's', '^', 'D', 'v'] 
 
-# Iterate through sorted TCP names for consistent coloring/ordering
 for i, tcp in enumerate(sorted(data.keys())):
     values = data[tcp]
-    # Sort by delay so the line connects points correctly from left to right
     values.sort(key=lambda x: x[0])
     
     delays = [v[0] for v in values]
