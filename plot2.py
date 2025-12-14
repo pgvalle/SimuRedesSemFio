@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import csv
 
 filename = 'results.csv'
-target_ber = 0.001
+target_ber = 0.0001
 target_off_col = 'off95'
 
 FONT_SIZE = 11.5
@@ -50,9 +50,9 @@ for i, tcp in enumerate(sorted(data.keys())):
     plt.errorbar(delays, means, yerr=errors, label=tcp, 
                  marker=markers[i % len(markers)], capsize=4, linestyle='-')
 
-plt.xlabel('Delay (ms)')
-plt.ylabel('Average Throughput (Kbps)')
-plt.title(f'TCP Throughput vs Delay (BER = {target_ber})')
+plt.xlabel('Atraso (ms)')
+plt.ylabel('Vazão (Kbps)')
+plt.title(f'Vazão vs Atraso (BER = {target_ber})')
 plt.legend()
 plt.grid(True, linestyle='--', alpha=0.7)
 
